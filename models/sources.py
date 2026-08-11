@@ -12,7 +12,7 @@ class Source(db.Model):
     track_id = Column(UUID(as_uuid=True), ForeignKey("tracks.id"), nullable=False)
     platform = Column(String, nullable=False)
     url = Column(String, nullable=False)
-    quality = Column(String, nullable=False)
+    quality = Column(String)
     upload_date = Column(DateTime)
     user_id = Column(String, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
