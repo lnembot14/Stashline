@@ -21,7 +21,7 @@ def track():
             try:
                 db.session.commit()
                 track_data = {"id": song.id, "era_id": song.era_id, "title": song.title, "notes": song.notes, "user_id": song.user_id, "created_at": song.created_at}
-                return jsonify(track_data), 400
+                return jsonify(track_data), 200
             except sqlalchemy.exc.IntegrityError:
                 db.session.rollback()
                 return "Invalid Artist_Id, please try again", 400

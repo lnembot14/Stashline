@@ -3,6 +3,7 @@ from config import Config
 from routes.artist_routes import artist_route
 from routes.eras_routes import eras_routes
 from routes.tracks_routes import track_route
+from routes.sources_routes import source_route
 from models.extensions import db
 
 
@@ -14,6 +15,7 @@ db.init_app(app)
 app.register_blueprint(artist_route)
 app.register_blueprint(eras_routes)
 app.register_blueprint(track_route)
+app.register_blueprint(source_route)
 
 if __name__ == "__main__":
     app.run(debug=True)
