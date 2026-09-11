@@ -21,7 +21,7 @@ def source():
             db.session.add(source_info)
             try:
                 db.session.commit()
-                source_dict = {"id": source_info.id, "url": source_info.url, "track_id": source_info.track_id, "platform": source_info.platform, "quality": source_info.quality, "upload_date": source_info.upload_date, "created_at": source_info.created_at}
+                source_dict = {"user_id": source_info.user_id, "id": source_info.id, "url": source_info.url, "track_id": source_info.track_id, "platform": source_info.platform, "quality": source_info.quality, "upload_date": source_info.upload_date, "created_at": source_info.created_at}
                 return jsonify(source_dict), 200
             except sqlalchemy.exc.IntegrityError:
                 db.session.rollback()
