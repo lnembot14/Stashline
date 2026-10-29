@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 import sqlalchemy
 from models.eras import Eras
 from models.extensions import db
@@ -27,32 +27,50 @@ def eras():
                 db.session.rollback()
                 return "Invalid Artist_Id, please try again", 400
 
-@eras_routes.route('/eras/<eras.id>', methods= ['PATCH', 'DELETE'])
-def era_detail():
+@eras_routes.route('/eras/<uuid:era_id>', methods= ['PATCH', 'DELETE'])
+def era_detail(era_id):
     if request.method == "DELETE":
         try:
-            selected_era = db.session.get(Eras, Eras.id)
+            selected_era = db.session.get(Eras, era_id)
             if selected_era is None:
                 return "Error, selected_era is not in DB"
             db.session.delete(selected_era)
             db.session.commit()
         except sqlalchemy.exc.DataError:
-                    db.session.rollback()
-                    return "Data Error", 400
+            db.session.rollback()
+            return "Data Error", 400
     elif request.method == "PATCH":
-        updated_era = db.session.get(Eras, Eras.id)
-        r_update = request.json
-
+        if not request.is_json:
+            return "Request must contain JSON", 415
+        r_update = request.get_json()
+        if not isinstance(r_update, dict):
+            return "JSON body must be an object", 400
         if "name" in r_update:
-            updated_era.name = r_update["name"]
-            
-        db.session.commit()
-        return jsonify({
-            "id": updated_era.id,
-            "name": updated_era.name,
-            "artist_id": updated_era.artist_id,
-            "user_id": updated_era.user_id,
-            "created_at": updated_era.created_at
-        }), 200
+            if not isinstance(r_update["name"], str) or not r_update["name"].strip():
+                return "Name must be a non-empty string", 400
+
+        try:
+            updated_era = db.session.get(Eras, era_id)
+            if updated_era is None:
+                return "Era not found", 404
+
+            if "name" in r_update:
+                updated_era.name = r_update["name"].strip()
+
+            db.session.commit()
+            return jsonify({
+                "id": updated_era.id,
+                "name": updated_era.name,
+                "artist_id": updated_era.artist_id,
+                "user_id": updated_era.user_id,
+                "created_at": updated_era.created_at
+            }), 200
+        except (sqlalchemy.exc.DataError, sqlalchemy.exc.IntegrityError):
+            db.session.rollback()
+            return "Invalid era data", 400
+        except sqlalchemy.exc.SQLAlchemyError:
+            db.session.rollback()
+            current_app.logger.exception("Failed to update era")
+            return "Unable to update era", 500
 
 
