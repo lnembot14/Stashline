@@ -4,6 +4,7 @@ from models.eras import Eras
 from models.tracks import Tracks
 from models.sources import Source
 from models.extensions import db
+import sqlalchemy
 
 with app.app_context():
     Artist1 = Artists(name="Playboi Carti", user_id="lnembot14")
@@ -22,8 +23,6 @@ with app.app_context():
     db.session.add(Source1)
     db.session.commit()
 
-    artist_id = "1c63fc3c-03b8-45c3-896c-f038bdb57c29"
-    result = db.session.get(Artists, artist_id)
-    print(result)
-    print(result.name if result else "No artist found")
+    
+
 

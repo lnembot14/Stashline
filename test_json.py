@@ -1,5 +1,8 @@
 import requests
 import uuid
+import sys
+
+
 
 random_id = str(uuid.uuid4())
 
@@ -10,6 +13,7 @@ payload = {
     "user_id": "lnembot14",
     "artist_id": response.json()["id"]
 }
+
 era_response = requests.post(url="http://127.0.0.1:5000/eras", json=payload)
 track_dict = {"title": "Vital", "era_id": era_response.json()["id"], "user_id":"lnembot14", "notes": "Catchy song"}
 track_response = requests.post(url="http://127.0.0.1:5000/track", json=track_dict)

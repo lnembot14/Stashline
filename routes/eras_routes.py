@@ -26,6 +26,33 @@ def eras():
             except sqlalchemy.exc.IntegrityError:
                 db.session.rollback()
                 return "Invalid Artist_Id, please try again", 400
+
+@eras_routes.route('/eras/<eras.id>', methods= ['PATCH', 'DELETE'])
+def era_detail():
+    if request.method == "DELETE":
+        try:
+            selected_era = db.session.get(Eras, Eras.id)
+            if selected_era is None:
+                return "Error, selected_era is not in DB"
+            db.session.delete(selected_era)
+            db.session.commit()
+        except sqlalchemy.exc.DataError:
+                    db.session.rollback()
+                    return "Data Error", 400
+    elif request.method == "PATCH":
+        updated_era = db.session.get(Eras, Eras.id)
+        r_update = request.json
+
+        if "name" in r_update:
+            updated_era.name = r_update["name"]
             
+        db.session.commit()
+        return jsonify({
+            "id": updated_era.id,
+            "name": updated_era.name,
+            "artist_id": updated_era.artist_id,
+            "user_id": updated_era.user_id,
+            "created_at": updated_era.created_at
+        }), 200
 
 
