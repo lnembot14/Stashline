@@ -2,78 +2,69 @@ from flask import Blueprint, current_app, jsonify, request
 import sqlalchemy
 from models.tracks import Tracks
 from models.extensions import db
+from routes.validation import read_json, record_dict
+
 
 track_route = Blueprint("track_route", __name__)
 
-@track_route.route('/track', methods=['GET', 'POST'])
+# PATCH may change these fields; POST also accepts ownership and parent IDs.
+EDITABLE_FIELDS = {'title': 'text', 'notes': 'optional_text'}
+CREATE_FIELDS = {**EDITABLE_FIELDS, **{'user_id': 'text', 'era_id': 'uuid'}}
+RESPONSE_FIELDS = ('id', 'era_id', 'title', 'notes', 'user_id', 'created_at')
+
+
+@track_route.route('/tracks', methods=['GET', 'POST'])
 def track():
-    if request.method == "GET":
-        track_info = db.session.scalars(db.select(Tracks)).all()
-        track_list = [{"id":track.id, "era_id": track.era_id, "title": track.title, "notes": track.notes, "user_id" : track.user_id, "created_at": track.created_at} for track in track_info]
-        return jsonify(track_list), 200
-    elif request.method == "POST":
-        added_track = request.json
-        if added_track.get("user_id") is None or added_track.get("title") is None or added_track.get("era_id") is None:
-            return "Missing required field(s)", 400
-        else:
-            song = Tracks(title= added_track["title"], user_id = added_track["user_id"],era_id = added_track["era_id"])
-            db.session.add(song)
-            try:
-                db.session.commit()
-                track_data = {"id": song.id, "era_id": song.era_id, "title": song.title, "notes": song.notes, "user_id": song.user_id, "created_at": song.created_at}
-                return jsonify(track_data), 200
-            except sqlalchemy.exc.IntegrityError:
-                db.session.rollback()
-                return "Invalid Artist_Id, please try again", 400
+    if request.method == 'GET':
+        records = db.session.scalars(db.select(Tracks)).all()
+        return jsonify([record_dict(record, RESPONSE_FIELDS) for record in records]), 200
 
-@track_route.route('/tracks/<uuid:track_id>', methods = ['PATCH', 'DELETE'])
+    values = read_json(CREATE_FIELDS, required=('title', 'user_id', 'era_id'))
+    try:
+        record = Tracks(**values)
+        db.session.add(record)
+        db.session.commit()
+        return jsonify(record_dict(record, RESPONSE_FIELDS)), 201
+    except (sqlalchemy.exc.DataError, sqlalchemy.exc.IntegrityError):
+        db.session.rollback()
+        return "Invalid track data or parent ID", 400
+    except sqlalchemy.exc.SQLAlchemyError:
+        db.session.rollback()
+        current_app.logger.exception("Failed to create track")
+        return "Unable to create track", 500
+
+
+@track_route.route('/tracks/<uuid:track_id>', methods=['GET', 'PATCH', 'DELETE'])
 def track_detail(track_id):
-    if request.method == "DELETE":
-        try:
-            selected_track = db.session.get(Tracks, track_id)
-            if selected_track is None:
-                return "Track not found", 404
-            db.session.delete(selected_track)
+    # Validate before making changes. Omitted fields keep their current values.
+    if request.method == 'PATCH':
+        updates = read_json(EDITABLE_FIELDS)
+
+    try:
+        record = db.session.get(Tracks, track_id)
+        if record is None:
+            return "Track not found", 404
+
+        if request.method == 'GET':
+            return jsonify(record_dict(record, RESPONSE_FIELDS)), 200
+        if request.method == 'DELETE':
+            db.session.delete(record)
             db.session.commit()
-            return "Item deleted", 200
-        except (sqlalchemy.exc.DataError, sqlalchemy.exc.IntegrityError):
-            db.session.rollback()
-            return "Invalid track data", 400
-        except sqlalchemy.exc.SQLAlchemyError:
-            db.session.rollback()
-            current_app.logger.exception("Failed to delete track")
-            return "Unable to delete track", 500
-    elif request.method == "PATCH":
-        if not request.is_json:
-            return "Request must contain JSON", 415
-        updates = request.get_json()
-        if not isinstance(updates, dict):
-            return "JSON body must be an object", 400
-        if "title" in updates:
-            if not isinstance(updates["title"], str) or not updates["title"].strip():
-                return "Title must be a non-empty string", 400
+            return "Track deleted", 200
 
-        try:
-            track_info = db.session.get(Tracks, track_id)
-            if track_info is None:
-                return "Track not found", 404
-
-            if "title" in updates:
-                track_info.title = updates["title"].strip()
-
-            db.session.commit()
-            return jsonify({
-                "id": track_info.id,
-                "era_id": track_info.era_id,
-                "title": track_info.title,
-                "notes": track_info.notes,
-                "user_id": track_info.user_id,
-                "created_at": track_info.created_at
-            }), 200
-        except (sqlalchemy.exc.DataError, sqlalchemy.exc.IntegrityError):
-            db.session.rollback()
-            return "Invalid track data", 400
-        except sqlalchemy.exc.SQLAlchemyError:
-            db.session.rollback()
-            current_app.logger.exception("Failed to update track")
-            return "Unable to update track", 500
+        for field, value in updates.items():
+            setattr(record, field, value)
+        db.session.commit()
+        return jsonify(record_dict(record, RESPONSE_FIELDS)), 200
+    except sqlalchemy.exc.IntegrityError:
+        db.session.rollback()
+        if request.method == 'DELETE':
+            return "Cannot delete track while other records reference it", 409
+        return "Invalid track data", 400
+    except sqlalchemy.exc.DataError:
+        db.session.rollback()
+        return "Invalid track data", 400
+    except sqlalchemy.exc.SQLAlchemyError:
+        db.session.rollback()
+        current_app.logger.exception("Failed to process track request")
+        return "Unable to process track request", 500

@@ -1,67 +1,70 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
+import sqlalchemy
 from models.artists import Artists
 from models.extensions import db
-import requests
-import sqlalchemy
+from routes.validation import read_json, record_dict
 
 
 artist_route = Blueprint("artist_route", __name__)
 
-@artist_route.route('/artists', methods= ['GET', 'POST'])
+# PATCH may change these fields; POST also accepts ownership and parent IDs.
+EDITABLE_FIELDS = {'name': 'text'}
+CREATE_FIELDS = {**EDITABLE_FIELDS, **{'user_id': 'text'}}
+RESPONSE_FIELDS = ('id', 'name', 'user_id', 'created_at')
+
+
+@artist_route.route('/artists', methods=['GET', 'POST'])
 def artists():
     if request.method == 'GET':
-        artists = db.session.scalars(db.select(Artists)).all()
-        artist_list = [{"id": artist.id, "name": artist.name, "user_id": artist.user_id, "created_at": artist.created_at} for artist in artists]
-        return jsonify(artist_list), 200 
-    elif request.method == 'POST':
-        artist_info = request.json
-        artist = Artists(name = artist_info["name"], user_id = artist_info["user_id"])
-        db.session.add(artist)
+        records = db.session.scalars(db.select(Artists)).all()
+        return jsonify([record_dict(record, RESPONSE_FIELDS) for record in records]), 200
+
+    values = read_json(CREATE_FIELDS, required=('name', 'user_id'))
+    try:
+        record = Artists(**values)
+        db.session.add(record)
         db.session.commit()
-        artist_data = {"id": artist.id, "name": artist.name, "user_id": artist.user_id, "created_at": artist.created_at}
-        return jsonify(artist_data), 201
+        return jsonify(record_dict(record, RESPONSE_FIELDS)), 201
+    except (sqlalchemy.exc.DataError, sqlalchemy.exc.IntegrityError):
+        db.session.rollback()
+        return "Invalid artist data or parent ID", 400
+    except sqlalchemy.exc.SQLAlchemyError:
+        db.session.rollback()
+        current_app.logger.exception("Failed to create artist")
+        return "Unable to create artist", 500
 
-@artist_route.route('/artists/<uuid:artist_id>', methods = ["PATCH", "DELETE"])
+
+@artist_route.route('/artists/<uuid:artist_id>', methods=['GET', 'PATCH', 'DELETE'])
 def artist_detail(artist_id):
-    if request.method == "DELETE":
-        try:
-            selected_artist = db.session.get(Artists, artist_id)
-            if selected_artist is None:
-                return "Artist not found", 404
-            else:
-                db.session.delete(selected_artist)
-                db.session.commit() 
-                return "Item deleted", 200  
-        except sqlalchemy.exc.DataError:
-            db.session.rollback()
-            return "Data Error", 400
-    elif request.method == "PATCH":
-        try:
+    # Validate before making changes. Omitted fields keep their current values.
+    if request.method == 'PATCH':
+        updates = read_json(EDITABLE_FIELDS)
 
-            if not request.is_json:
-                 return "Request must contain JSON", 415
-            updates = request.get_json()
-            if not isinstance(updates, dict):
-                    return "JSON body must be an object", 400
-            
-            updated_artist = db.session.get(Artists, artist_id)
+    try:
+        record = db.session.get(Artists, artist_id)
+        if record is None:
+            return "Artist not found", 404
 
-            if updated_artist is None:
-                return "Can't update artist not in DB", 404
-            else:
-                if "name" in updates:
-                    if not isinstance(updates["name"], str) or not updates["name"].strip():
-                        return "Name must be a non-empty string", 400
-                    updated_artist.name = updates["name"].strip()
-                db.session.commit()
-                return jsonify({
-                    "id": updated_artist.id,
-                    "name": updated_artist.name,
-                    "user_id": updated_artist.user_id,
-                    "created_at": updated_artist.created_at
-                }), 200
-        except sqlalchemy.exc.DataError:
-                    db.session.rollback()
-                    return "Data Error", 400
+        if request.method == 'GET':
+            return jsonify(record_dict(record, RESPONSE_FIELDS)), 200
+        if request.method == 'DELETE':
+            db.session.delete(record)
+            db.session.commit()
+            return "Artist deleted", 200
 
-        
+        for field, value in updates.items():
+            setattr(record, field, value)
+        db.session.commit()
+        return jsonify(record_dict(record, RESPONSE_FIELDS)), 200
+    except sqlalchemy.exc.IntegrityError:
+        db.session.rollback()
+        if request.method == 'DELETE':
+            return "Cannot delete artist while other records reference it", 409
+        return "Invalid artist data", 400
+    except sqlalchemy.exc.DataError:
+        db.session.rollback()
+        return "Invalid artist data", 400
+    except sqlalchemy.exc.SQLAlchemyError:
+        db.session.rollback()
+        current_app.logger.exception("Failed to process artist request")
+        return "Unable to process artist request", 500
