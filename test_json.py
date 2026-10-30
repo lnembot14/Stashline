@@ -1,28 +1,43 @@
-import requests
-import uuid
-import sys
+from types import SimpleNamespace
+from unittest.mock import patch
+from uuid import uuid4
+
+from flask import Flask
+from routes import sources_routes
 
 
+# Use a small test app and a fake source so your real database is untouched.
+app = Flask(__name__)
+app.register_blueprint(sources_routes.source_route)
+client = app.test_client()
 
-random_id = str(uuid.uuid4())
+source = SimpleNamespace(
+    id=uuid4(),
+    track_id=uuid4(),
+    platform="YouTube",
+    url="https://example.com/song",
+    quality="MP3",
+    upload_date=None,
+    user_id="test-user",
+    created_at=None,
+)
 
-artist_dict = {"name": "Drake", "user_id": "lnembot14"}
-response = requests.post(url= "http://127.0.0.1:5000/artists", json=artist_dict)
-payload = {
-    "name": "CLB",
-    "user_id": "lnembot14",
-    "artist_id": response.json()["id"]
-}
+with patch.object(sources_routes, "db") as fake_db:
+    # Pretend the database found this source when the route looks up its ID.
+    fake_db.session.get.return_value = source
 
-era_response = requests.post(url="http://127.0.0.1:5000/eras", json=payload)
-track_dict = {"title": "Vital", "era_id": era_response.json()["id"], "user_id":"lnembot14", "notes": "Catchy song"}
-track_response = requests.post(url="http://127.0.0.1:5000/track", json=track_dict)
-source_dict = {"user_id": "lnembot14", "url": "https://youtu.be/KW9cWBahTnY?si=qkPVhVjj3gUNGZFv", "platform": "Youtube", "track_id": track_response.json()["id"]}
-source_response = requests.post(url= "http://127.0.0.1:5000/sources", json=source_dict)
+    # Test 1: PATCH changes quality and leaves omitted fields alone.
+    response = client.patch(f"/sources/{source.id}", json={"quality": "FLAC"})
+    assert response.status_code == 200
+    assert response.get_json()["quality"] == "FLAC"
+    assert response.get_json()["platform"] == "YouTube"
+    fake_db.session.commit.assert_called_once()
+    print("PASS: quality changed to FLAC, platform stayed YouTube, and commit was called.")
 
-print(track_response.json()["id"])
-print(source_response.text)
-print(source_response.status_code)
-
-
-
+    # Test 2: Clients cannot change ownership through this endpoint.
+    fake_db.session.commit.reset_mock()
+    response = client.patch(f"/sources/{source.id}", json={"user_id": "someone-else"})
+    assert response.status_code == 400
+    assert source.user_id == "test-user"
+    fake_db.session.commit.assert_not_called()
+    print("PASS: changing user_id was rejected and commit was not called.")
