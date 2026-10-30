@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 import sqlalchemy
 from models.tracks import Tracks
 from models.extensions import db
@@ -25,3 +25,55 @@ def track():
             except sqlalchemy.exc.IntegrityError:
                 db.session.rollback()
                 return "Invalid Artist_Id, please try again", 400
+
+@track_route.route('/tracks/<uuid:track_id>', methods = ['PATCH', 'DELETE'])
+def track_detail(track_id):
+    if request.method == "DELETE":
+        try:
+            selected_track = db.session.get(Tracks, track_id)
+            if selected_track is None:
+                return "Track not found", 404
+            db.session.delete(selected_track)
+            db.session.commit()
+            return "Item deleted", 200
+        except (sqlalchemy.exc.DataError, sqlalchemy.exc.IntegrityError):
+            db.session.rollback()
+            return "Invalid track data", 400
+        except sqlalchemy.exc.SQLAlchemyError:
+            db.session.rollback()
+            current_app.logger.exception("Failed to delete track")
+            return "Unable to delete track", 500
+    elif request.method == "PATCH":
+        if not request.is_json:
+            return "Request must contain JSON", 415
+        updates = request.get_json()
+        if not isinstance(updates, dict):
+            return "JSON body must be an object", 400
+        if "title" in updates:
+            if not isinstance(updates["title"], str) or not updates["title"].strip():
+                return "Title must be a non-empty string", 400
+
+        try:
+            track_info = db.session.get(Tracks, track_id)
+            if track_info is None:
+                return "Track not found", 404
+
+            if "title" in updates:
+                track_info.title = updates["title"].strip()
+
+            db.session.commit()
+            return jsonify({
+                "id": track_info.id,
+                "era_id": track_info.era_id,
+                "title": track_info.title,
+                "notes": track_info.notes,
+                "user_id": track_info.user_id,
+                "created_at": track_info.created_at
+            }), 200
+        except (sqlalchemy.exc.DataError, sqlalchemy.exc.IntegrityError):
+            db.session.rollback()
+            return "Invalid track data", 400
+        except sqlalchemy.exc.SQLAlchemyError:
+            db.session.rollback()
+            current_app.logger.exception("Failed to update track")
+            return "Unable to update track", 500

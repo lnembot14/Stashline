@@ -21,7 +21,7 @@ def artists():
         artist_data = {"id": artist.id, "name": artist.name, "user_id": artist.user_id, "created_at": artist.created_at}
         return jsonify(artist_data), 201
 
-@artist_route.route('/artists/<artist_id>', methods = ["PATCH", "DELETE"])
+@artist_route.route('/artists/<uuid:artist_id>', methods = ["PATCH", "DELETE"])
 def artist_detail(artist_id):
     if request.method == "DELETE":
         try:

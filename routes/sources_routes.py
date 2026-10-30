@@ -26,3 +26,11 @@ def source():
             except sqlalchemy.exc.IntegrityError:
                 db.session.rollback()
                 return "Invalid entry try again", 400
+
+@source_route.route('/sources/<uuid:sources.id>', methods= ['PATCH', 'DELETE'])
+def sources_detail(source_id):
+    if request.method == "DELETE":
+        selected_source = db.session.get(Source, source_id)
+        db.session.delete(selected_source)
+        db.session.commit()
+    return "Successful deletion"
