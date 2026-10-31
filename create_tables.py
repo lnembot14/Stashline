@@ -4,6 +4,7 @@ from models.artists import Artists
 from models.eras import Eras
 from models.sources import Source
 from models.tracks import Tracks
+from models.saved_tracks import SavedTracks
 
 with app.app_context():
     db.create_all()
