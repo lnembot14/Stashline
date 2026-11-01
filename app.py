@@ -4,6 +4,7 @@ from routes.artist_routes import artist_route
 from routes.eras_routes import eras_routes
 from routes.tracks_routes import track_route
 from routes.sources_routes import source_route
+from routes.saved_tracks_routes import saved_track_route
 from models.extensions import db
 
 
@@ -16,6 +17,7 @@ app.register_blueprint(artist_route)
 app.register_blueprint(eras_routes)
 app.register_blueprint(track_route)
 app.register_blueprint(source_route)
+app.register_blueprint(saved_track_route)
 
 if __name__ == "__main__":
     app.run(debug=True)
