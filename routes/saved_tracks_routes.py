@@ -7,8 +7,6 @@ from routes.validation import read_json, record_dict
 
 saved_track_route = Blueprint("saved_track_route", __name__)
 
-# Saved entries have no editable metadata yet.
-EDITABLE_FIELDS = {}
 # Temporary until user_id comes from verified authentication.
 CREATE_FIELDS = {'user_id': 'uuid', 'track_id': 'uuid'}
 RESPONSE_FIELDS = ('id', 'user_id', 'track_id', 'saved_at')
@@ -65,9 +63,24 @@ def saved_track_detail(saved_track_id):
             return "Unable to retrieve saved track", 500
 
     if request.method == 'PATCH':
-        # TODO: Validate and apply allowed updates to the saved track.
-        pass
+        # A saved entry is only a bookmark; source URLs are edited via /sources.
+        # Add editable personal metadata before enabling partial updates here.
+        return (
+            "Saved tracks have no editable fields. Update source links via /sources/<source_id>.",
+            405,
+            {'Allow': 'GET, HEAD, DELETE, OPTIONS'},
+        )
 
     if request.method == 'DELETE':
-        # TODO: Remove a saved track belonging to the authenticated user.
-        pass
+        try:
+            saved = db.session.get(SavedTracks, saved_track_id)
+            if saved is None:
+                return "Saved track not found", 404
+            # Delete the bookmark, leaving the track and its sources intact.
+            db.session.delete(saved)
+            db.session.commit()
+            return "Track unsaved", 200
+        except sqlalchemy.exc.SQLAlchemyError:
+            db.session.rollback()
+            current_app.logger.exception("Failed to unsave track")
+            return "Unable to unsave track", 500

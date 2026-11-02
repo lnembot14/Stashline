@@ -13,6 +13,7 @@ from routes.artist_routes import artist_route
 from routes.eras_routes import eras_routes
 from routes.tracks_routes import track_route
 from routes.sources_routes import source_route
+from routes.saved_tracks_routes import saved_track_route
 
 
 class RouteTests(unittest.TestCase):
@@ -20,7 +21,7 @@ class RouteTests(unittest.TestCase):
         self.app = Flask(__name__)
         self.app.config.update(TESTING=True, SQLALCHEMY_DATABASE_URI="sqlite://")
         db.init_app(self.app)
-        for blueprint in (artist_route, eras_routes, track_route, source_route):
+        for blueprint in (artist_route, eras_routes, track_route, source_route, saved_track_route):
             self.app.register_blueprint(blueprint)
         self.context = self.app.app_context()
         self.context.push()
@@ -135,6 +136,43 @@ class RouteTests(unittest.TestCase):
             with self.assertLogs(self.app.logger, level='ERROR'):
                 self.assertEqual(self.client.patch(path, json={'quality': 'FLAC'}).status_code, 500)
         self.assertEqual(self.client.get(path).get_json()['quality'], 'MP3')
+
+    def test_unsave_preserves_track_sources_and_other_users_bookmarks(self):
+        records = self.seed()
+        values = {'user_id': str(uuid4()), 'track_id': records['tracks']['id']}
+        saved = self.create('/saved_tracks', values)
+        other = self.create('/saved_tracks', {**values, 'user_id': str(uuid4())})
+        path = f'/saved_tracks/{saved["id"]}'
+        self.assertEqual(self.client.delete(path).status_code, 200)
+        self.assertEqual(self.client.get(path).status_code, 404)
+        self.assertEqual(self.client.delete(path).status_code, 404)
+        self.assertEqual(self.client.delete(f'/saved_tracks/{uuid4()}').status_code, 404)
+        self.assertEqual(self.client.get(f'/saved_tracks/{other["id"]}').status_code, 200)
+        for resource in ('tracks', 'sources'):
+            self.assertEqual(self.client.get(f'/{resource}/{records[resource]["id"]}').get_json(),
+                             records[resource])
+
+    def test_saved_track_patch_is_not_supported(self):
+        records = self.seed()
+        saved = self.create('/saved_tracks', {
+            'user_id': str(uuid4()), 'track_id': records['tracks']['id'],
+        })
+        path = f'/saved_tracks/{saved["id"]}'
+        response = self.client.patch(path, json={'track_id': str(uuid4())})
+        self.assertEqual(response.status_code, 405)
+        self.assertNotIn('PATCH', response.headers['Allow'])
+        self.assertEqual(self.client.get(path).get_json(), saved)
+
+    def test_failed_unsave_rolls_back(self):
+        records = self.seed()
+        saved = self.create('/saved_tracks', {
+            'user_id': str(uuid4()), 'track_id': records['tracks']['id'],
+        })
+        path = f'/saved_tracks/{saved["id"]}'
+        with patch.object(db.session, 'commit', side_effect=SQLAlchemyError('test failure')):
+            with self.assertLogs(self.app.logger, level='ERROR'):
+                self.assertEqual(self.client.delete(path).status_code, 500)
+        self.assertEqual(self.client.get(path).get_json(), saved)
 
 
 if __name__ == '__main__':
